@@ -1,0 +1,117 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ruleta para Juan</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="stat"><small>Ruleta</small>Saldo <span id="balance">5000</span> €</div>
+    <div class="title">Ruleta para Juan</div>
+    <div class="stat"><small>Apuesta total</small><span id="stake">0,00</span> €</div>
+  </div>
+
+  <div class="stage">
+    <div class="arena">
+      <div class="layout">
+        <!-- ===== RUEDA 2D ===== -->
+        <div class="wheel2d">
+          <div class="wheel2d__pointer" aria-hidden="true"></div>
+          <canvas id="wheel2d" class="wheel2d__canvas"></canvas>
+        </div>
+        <!-- ==================== -->
+
+        <!-- ========== TABLERO + CONTROLES ========== -->
+        <div>
+          <div class="felt">
+            <div id="playersHud" class="players-hud"></div>
+            <div class="tableFrame">
+              <div id="board" class="board"></div>
+              <!-- El overlay de apuestas internas lo inyecta app.js -->
+            </div>
+
+            <div class="rack">
+              <div class="chips" id="chips"></div>
+              <div style="flex:1"></div>
+              <button id="btn-delete" class="btn danger">ELIMINAR</button>
+              <button id="btn-undo"   class="btn">DESHACER</button>
+              <button id="btn-spin"   class="btn primary">GIRAR</button>
+              <button id="btn-double" class="btn">DOBLAR</button>
+              <button id="btn-repeat" class="btn">REAPOSTAR</button>
+              <button id="btn-allin" class="btn danger">ALL‑IN</button>
+            </div>
+
+            <div class="side">
+              <div class="panel"><strong>Historial</strong><div id="history"></div></div>
+              <div class="panel">
+                <strong>Logs</strong>
+                <pre id="log" style="white-space:pre-wrap;margin:8px 0 0;color:#c0cad7;font-family:ui-monospace,Consolas,Menlo,monospace"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div> <!-- /layout -->
+    </div>   <!-- /arena -->
+  </div>     <!-- /stage -->
+
+  <div id="toast" class="toast"></div>
+
+  <!-- Overlay de Inicio -->
+  <div id="startOverlay" class="start-overlay">
+    <div id="menuInicio" class="start-card">
+      <h2>Bienvenido</h2>
+      <p>Elige un modo de juego</p>
+      <div class="start-actions">
+        <button id="btn-start-singleplayer" class="btn primary">Singleplayer</button>
+        <button id="btn-start-multiplayer" class="btn">Multiplayer</button>
+      </div>
+    </div>
+
+    <div id="menuMultiplayer" class="start-card" style="display:none">
+      <h2>Multiplayer</h2>
+      <p>Crea una sala o únete con un código</p>
+      <div class="lobby-grid">
+        <div class="panel">
+          <strong>Crear sala</strong>
+          <div class="form-row"><label>Nombre</label><input id="mp-name-create" class="input" placeholder="Tu nombre" /></div>
+          <div class="form-row"><label>Privacidad</label>
+            <select id="mp-privacy" class="input"><option value="public">Pública</option><option value="private">Privada</option></select>
+          </div>
+          <button id="btn-create-room" class="btn primary">Crear sala</button>
+          <div id="mp-created" class="code-wrap" style="display:none;margin-top:8px">
+            <div class="code-badge"><span id="mp-room-created-code">ABCDE</span><button id="btn-copy-created" class="btn" style="padding:6px 10px;margin-left:8px">Copiar</button></div>
+            <small style="color:#98a4b5">Comparte este código para que se unan</small>
+          </div>
+        </div>
+        <div class="panel">
+          <strong>Unirse a sala</strong>
+          <div class="form-row"><label>Nombre</label><input id="mp-name-join" class="input" placeholder="Tu nombre" /></div>
+          <div class="form-row"><label>Código</label><input id="mp-room-code" class="input" placeholder="Código de sala" /></div>
+          <button id="btn-join-room" class="btn">Unirse</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <button id="btn-lobby-back" class="btn">Volver</button>
+        <div>
+          <button id="btn-enter-room" class="btn primary" style="display:none">Entrar a la sala</button>
+        </div>
+      </div>
+      <small style="color:#98a4b5">Nota: No funcioña todiva</small>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // Fallback: si no se sirve /socket.io/socket.io.js (p.ej. Live Server), carga desde CDN
+    if (!window.io) {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.socket.io/4.8.1/socket.io.min.js';
+      s.crossOrigin = 'anonymous';
+      document.head.appendChild(s);
+    }
+  </script>
+  <script defer src="app.js"></script>
+</body>
+</html>
