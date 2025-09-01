@@ -2,6 +2,7 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const crypto = require("crypto"); // <- CSPRNG
 
 const app = express();
 const server = http.createServer(app);
@@ -10,8 +11,18 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET','POST'] } }
 app.use(express.json({ limit: '64kb' }));
 app.use(express.static("public"));
 
-// Endpoint de depuración para ver logs del cliente en la consola del servidor (VS Code Output)
-// Memoria de logs para VS Code Output extension (simple buffer con secuencia)
+/**
+ * (OPCIONAL) Endpoint para probar uniformidad del RNG
+ * Llama: /__rng?n=100000
+ */
+app.get('/__rng', (req, res) => {
+  const N = Math.min(parseInt(req.query.n || '10000', 10), 1e6);
+  const counts = Array(37).fill(0);
+  for (let i = 0; i < N; i++) counts[crypto.randomInt(0, 37)]++;
+  res.json({ N, counts });
+});
+
+// ======= Depuración simple (logs) =======
 let __logSeq = 0;
 const __logs = []; // {seq,time,label,data}
 app.post('/__log', (req, res) => {
@@ -30,7 +41,8 @@ app.get('/__logs', (req, res) => {
 
 // ======= Estado de salas =======
 const START_BALANCE = 5000;
-const rooms = new Map(); // code -> { leaderId, players: Map<sid,{name,balance,ready,lastRechargeAt?:number}>, bets: Map<sid, Array<Bet>>, roundActive: bool, privacy: string, pendingNumber: number|null }
+// code -> { leaderId, players: Map<sid,{name,balance,ready}>, bets: Map<sid, Array<Bet>>, roundActive: bool, privacy: string, pendingNumber: number|null }
+const rooms = new Map();
 
 function newRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -43,7 +55,9 @@ function newRoomCode() {
 function roomStatePayload(code) {
   const room = rooms.get(code);
   if (!room) return null;
-  const players = Array.from(room.players.entries()).map(([id, p]) => ({ id, name: p.name, balance: p.balance, ready: !!p.ready }));
+  const players = Array.from(room.players.entries()).map(([id, p]) => ({
+    id, name: p.name, balance: p.balance, ready: !!p.ready
+  }));
   const allReady = players.length > 0 && players.every(p => p.ready);
   return { code, leaderId: room.leaderId, players, roundActive: !!room.roundActive, allReady };
 }
@@ -66,8 +80,6 @@ function multiplier(t){
   }
 }
 
-
-
 io.on("connection", (socket) => {
   console.log('[io] connection', socket.id);
   let joinedCode = null;
@@ -77,15 +89,13 @@ io.on("connection", (socket) => {
     try { console.log('[client]', socket.id, payload?.label, payload?.data); } catch {}
   });
 
-  // El líder informa del número en el que aterrizó la ruleta para sincronizar el resultado visual
-  socket.on('mp:landed', ({ code, number }) => {
+  // ACK visual del líder: NO tocamos el número del servidor
+  socket.on('mp:landed', ({ code /*, number*/ }) => {
     code = String(code||'').toUpperCase().trim();
     const room = rooms.get(code); if (!room) return;
     if (!room.roundActive) return;
     if (room.leaderId !== socket.id) return;
-    if (typeof number === 'number' && number>=0 && number<=36) {
-      room.pendingNumber = number;
-    }
+    // Intencionalmente no modificamos room.pendingNumber aquí.
   });
 
   function emitState() {
@@ -158,7 +168,13 @@ io.on("connection", (socket) => {
     const p = room.players.get(socket.id); if (!p) return;
     if (room.roundActive) return;
     const arr = room.bets.get(socket.id) || [];
-    for (let i=arr.length-1;i>=0;i--){ if (arr[i].domId===cellId || arr[i].id===cellId){ const b=arr.splice(i,1)[0]; p.balance+=b.amount; break; } }
+    for (let i=arr.length-1;i>=0;i--){
+      if (arr[i].domId===cellId || arr[i].id===cellId){
+        const b=arr.splice(i,1)[0];
+        p.balance+=b.amount;
+        break;
+      }
+    }
     room.bets.set(socket.id, arr);
     p.ready = arr.length>0;
     emitState();
@@ -186,17 +202,22 @@ io.on("connection", (socket) => {
     if (room.leaderId !== socket.id) return;
     const payload = roomStatePayload(code);
     if (!payload || !payload.allReady) return;
+
     room.roundActive = true;
-    // Decide número en el servidor
-    const crypto = require('crypto');
-    const fallback = crypto.randomInt(0, 37);
-    room.pendingNumber = fallback;
-    io.to(code).emit('mp:spin', { number: fallback });
-    console.log('[io] mp:spin', code, fallback);
+
+    // Número autoritativo decidido en el servidor con CSPRNG
+    const result = crypto.randomInt(0, 37); // 0..36
+    room.pendingNumber = result;
+
+    io.to(code).emit('mp:spin', { number: result });
+    console.log('[io] mp:spin', code, result);
 
     // Liquidación tras la animación (~5.2s)
     setTimeout(() => {
-      const number = (typeof room.pendingNumber === 'number') ? room.pendingNumber : Math.floor(Math.random()*37);
+      const number = Number.isInteger(room.pendingNumber)
+        ? room.pendingNumber
+        : crypto.randomInt(0, 37);
+
       const winners = [];
       for (const [pid, list] of room.bets.entries()){
         const player = room.players.get(pid); if (!player) continue;
@@ -209,52 +230,42 @@ io.on("connection", (socket) => {
         player.balance += payout;
         if (payout>0) winners.push({ playerId: pid, winAmount: payout });
       }
+
       // Reset apuestas y ready
       for (const pid of room.players.keys()){
         room.bets.set(pid, []);
         const p = room.players.get(pid); if (p) p.ready = false;
       }
+
       room.roundActive = false;
       room.pendingNumber = null;
+
       io.to(code).emit('mp:result', { number, winners, players: roomStatePayload(code).players });
       console.log('[io] mp:result', code, number, 'winners', winners.length);
       emitState();
     }, 5300);
   });
 
-  // Petición de +100 enviada por un jugador al líder
+  // Petición de +100 (o +1000) enviada por un jugador al líder (si lo usas)
   socket.on('mp:request100', ({ code, playerId, name }) => {
     code = String(code||'').toUpperCase().trim();
     const room = rooms.get(code); if (!room) return;
-    // reenviar solo al líder
     const leaderSid = room.leaderId; if (!leaderSid) return;
     io.to(leaderSid).emit('mp:req:100', { playerId: String(playerId||socket.id), name: String(name||'Jugador') });
   });
 
-
+  // El líder otorga saldo (ahora +1000 para coincidir con tu UI actual)
   socket.on('mp:grant100', ({ code, playerId }) => {
     code = String(code||'').toUpperCase().trim();
     const room = rooms.get(code); if (!room) return;
-
-    // Solo el líder puede otorgar saldo
-    if (room.leaderId !== socket.id) return;
-
+    if (room.leaderId !== socket.id) return; // Solo líder
     const target = room.players.get(String(playerId)); if (!target) return;
 
     target.balance += 1000;
 
-    // Opcional: evita dar saldo mientras gira (si lo quieres, descomenta)
-    // if (room.roundActive) return;
-
-    // Notificamos a todos con el nuevo estado
     io.to(code).emit('mp:state', roomStatePayload(code));
-
-    // Ack opcional (por si el cliente quiere tostar/loggear el OK)
     io.to(code).emit('mp:ack', { ok: true, action: 'grant1000', to: playerId, amount: 1000 });
   });
-
-  // (selfRecharge deshabilitado en multijugador)
-
 
   socket.on("disconnect", () => {
     console.log('[io] disconnect', socket.id, 'from', joinedCode);
@@ -277,4 +288,3 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
-
