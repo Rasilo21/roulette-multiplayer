@@ -277,159 +277,40 @@
 
     function updateSpinGating(){ const btn=$('btn-spin'); if(!btn) return; if (MODE==='mp' && MP.state){ const allReady = !!MP.state.allReady; const isLeader = MP.leader; const isRound  = !!MP.state.roundActive; btn.disabled = !(allReady && isLeader && !isRound); } else { btn.disabled = false; } }
     function connectSocket(){
-      if(MP.socket) return MP.socket;
+      if (MP.socket) return MP.socket;
       if (typeof io === 'undefined') { toast('Socket.IO no cargado'); safeLog('Error: window.io undefined'); return null; }
+
+      // Same-origin en producción (Render) y también cuando backend y frontend son el mismo servidor
+      // Si estás en local con frontend en otro puerto, cambia DEV_BACKEND_PORT más abajo o comenta el bloque.
       const isHttp = typeof location !== 'undefined' && /^https?:$/i.test(location.protocol);
-      const proto = isHttp ? location.protocol : 'http:';
-      const sameOriginPort = isHttp ? (location.port||'80') : '';
-      const shouldUseExplicit = !isHttp || (sameOriginPort !== '10000');
-      const host = (typeof location !== 'undefined' && location.hostname) ? location.hostname : 'localhost';
-      const serverURL = shouldUseExplicit ? `${proto}//${host}:10000` : undefined;
-      try { MP.socket = serverURL ? io(serverURL, { transports:['websocket','polling'] }) : io(); }
-      catch (e) { safeLog('Fallo creando socket: '+(e?.message||e)); toast('No se pudo iniciar socket'); return null; }
-      MP.socket.on('connect', ()=>{ safeLog(`Conectado a multiplayer (${MP.socket.id})`); });
+      const isLocal = typeof location !== 'undefined' && ['localhost','127.0.0.1'].includes(location.hostname);
+      const opts = {
+        transports: ['websocket','polling'],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 500
+      };
+
+      let url; // undefined => same-origin (lo que queremos en Render)
+      // Si en local navegas en http://localhost:10000 y tu backend corre en 3000, descomenta:
+      // const DEV_BACKEND_PORT = 3000;
+      // if (isHttp && isLocal && location.port && location.port !== String(DEV_BACKEND_PORT)) {
+      //   url = `http://localhost:${DEV_BACKEND_PORT}`;
+      // }
+
+      try {
+        MP.socket = url ? io(url, opts) : io(opts);   // En Render será same-origin
+      } catch (e) {
+        safeLog('Fallo creando socket: '+(e?.message||e));
+        toast('No se pudo iniciar socket');
+        return null;
+      }
+
+      MP.socket.on('connect', ()=> safeLog(`Conectado a multiplayer (${MP.socket.id})`));
       MP.socket.on('connect_error', (e)=>{ toast('Error de conexión'); safeLog('connect_error: '+(e?.message||e)); });
-      MP.socket.on('error', (e)=>{ safeLog('socket error: '+(e?.message||e)); });
-      MP.socket.on('mp:joined', ({ code, leader, you }) => {
-        MP.code=code; MP.you=you; MP.leader=!!leader;
-        if (leader) {
-          if (codeSpan) codeSpan.textContent = code;
-          if (codeBox) codeBox.style.display='block';
-          if (btnEnterRoom) btnEnterRoom.style.display='inline-block';
-          const joinInput = document.getElementById('mp-room-code'); if(joinInput) joinInput.value = code;
-          safeLog('Sala creada: '+code);
-        } else { overlay.style.display='none'; }
-      });
-      MP.socket.on('mp:state', (state) => {
-        MP.state = state;
-        MP.leader = state.leaderId === MP.you;
+      MP.socket.on('error', (e)=> safeLog('socket error: '+(e?.message||e)));
 
-        const self = state.players.find(p => p.id === MP.you);
-        MP.spectator = !!(self && self.spectator);
-
-        const me = state.players.find(p => p.id === MP.you);
-        if (me) { balance = me.balance; updateHeader(); }
-
-        // Re-pintamos HUD y actualizamos el gating del botón "GIRAR"
-        renderHud(state);
-        updateSpinGating();
-
-        // Si eres líder, convierte el "nombre" de cada jugador en un botón que da +100 €
-        if (MP.leader) {
-          try {
-            const pills = Array.from(document.querySelectorAll('#playersHud .player-pill'));
-            let idx = 0;
-            pills.forEach(pill => {
-              // Omitir la "píldora" de la sala (la que muestra el código)
-              if (pill.querySelector('#hud-room-code')) return;
-
-              const p = state.players[idx++]; 
-              if (!p) return;
-
-              const nameEl = pill.querySelector('.name');
-              if (!nameEl) return;
-
-              const btn = document.createElement('button');
-              btn.className = 'btn';
-              btn.style.cssText = 'padding:2px 6px;font-size:12px;line-height:1;margin-right:6px;cursor:pointer';
-              btn.title = 'Dar +100 € a este jugador';
-              // Conserva el icono de líder en el texto si corresponde
-              btn.textContent = `${p.name}${p.id === state.leaderId ? ' 👑' : ''}`;
-
-              btn.onclick = (ev) => {
-                ev.stopPropagation();
-                try { MP.socket.emit('mp:grant100', { code: MP.code, playerId: p.id }); } catch {}
-              };
-
-              nameEl.replaceWith(btn);
-            });
-          } catch {}
-        }
-      });
-
-      // Acks varias: grant100 (líder) y selfRecharge (todos)
-      MP.socket.on('mp:ack', (payload) => {
-        try {
-          if (payload?.action === 'grant100' && payload.ok && MP.leader) {
-            toast(`+100 € añadidos`);
-          }
-          if (false && payload?.action === 'selfRecharge') {
-            const btn = MP.rechargeBtn && document.getElementById('btn-sp-recharge');
-            if (payload.ok) {
-              toast(`+100 € añadidos`);
-              // Aplicar cooldown visual de 30s si viene indicado
-              if (typeof payload.nextAt === 'number') {
-                MP.nextRechargeAt = payload.nextAt;
-                if (btn) {
-                  btn.disabled = true;
-                  const tick = () => {
-                    const now = Date.now();
-                    if (now >= MP.nextRechargeAt) {
-                      btn.disabled = false;
-                      btn.title = 'Añadir 100';
-                    } else {
-                      const s = Math.ceil((MP.nextRechargeAt - now)/1000);
-                      btn.title = `Renovar en ${s}s`;
-                      setTimeout(tick, 250);
-                    }
-                  };
-                  tick();
-                }
-              }
-            } else {
-              const ms = Math.max(0, payload?.cooldownMs||0);
-              if (ms>0) {
-                const s = Math.ceil(ms/1000);
-                toast(`Espera ${s}s para renovar`);
-                MP.nextRechargeAt = Date.now() + ms;
-                if (btn) btn.title = `Renovar en ${s}s`;
-              } else if (payload?.error) {
-                toast('Error al renovar');
-              }
-            }
-          }
-        } catch {}
-      });
-      MP.socket.on('mp:error', (e)=> { toast(e?.message||'Error MP'); });
-      MP.socket.on('mp:spin', async ({ number })=>{ 
-        roundActive = false; 
-        toggleControls(true); 
-        try { await Wheel2D.spinTo(number); } catch(e){} 
-        try { MP.socket.emit('mp:landed', { code: MP.code, number }); } catch {}
-      });
-      MP.socket.on('mp:result', ({ number, winners, players })=>{
-        while(bets.length) bets.pop(); sumById.clear(); document.querySelectorAll('.sum').forEach(s=>{s.style.display='none'; s.textContent='0.00';});
-        const me = players.find(p=>p.id===MP.you); if(me){ balance = me.balance; }
-        pushHistory(number);
-        const color = number===0 ? 'verde' : (REDS.has(number)?'rojo':'negro');
-        safeLog(`[MP] Ganador: ${number} (${color}).`);
-        try {
-          const myWin = (winners||[]).find(w=>w.playerId===MP.you)?.winAmount||0;
-          if (myWin>0) {
-            safeLog(`[MP] Ganancia: ${fmt(myWin)}`);
-          } else {
-            safeLog(`[MP] Ganancia: 0,00`);
-          }
-        } catch {}
-        roundActive = true; toggleControls(false); updateHeader();
-      });
-      // Notificación en el líder de solicitudes de +100
-      MP.socket.on('mp:req:100', ({ playerId, name })=>{
-        try {
-          let island = document.getElementById('grant-island');
-          if (!island){
-            island = document.createElement('div');
-            island.id = 'grant-island';
-            island.style.cssText = 'position:fixed;top:10px;right:10px;z-index:99999;background:#0b0e13;border:1px solid #273047;color:#e8edf2;padding:8px 12px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.4);cursor:pointer;font:600 13px system-ui;';
-            document.body.appendChild(island);
-          }
-          island.textContent = `⚠ Solicitud +100: ${name}`;
-          island.onclick = () => {
-            try { MP.socket.emit('mp:grant100', { code: MP.code, playerId }); safeLog(`MP(líder): +100 otorgado a ${name}`); } catch{}
-            try { island.remove(); } catch{}
-          };
-        } catch{}
-      });
+      // ...deja abajo todos tus listeners mp:joined, mp:state, mp:spin, mp:result, etc.
       return MP.socket;
     }
     if (btnCreate){ btnCreate.onclick = () => { MODE='mp'; const name = (document.getElementById('mp-name-create')?.value||'').trim()||'Jugador'; const privacy = document.getElementById('mp-privacy')?.value||'public'; const s = connectSocket(); if(!s){ toast('No se pudo iniciar socket'); return; } try{ s.emit('mp:createRoom', { name, privacy }); }catch(e){ safeLog('emit error createRoom: '+(e?.message||e)); } }; }
