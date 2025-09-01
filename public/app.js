@@ -254,25 +254,39 @@
           try { await navigator.clipboard.writeText(MP.code); toast('Código copiado'); } catch {} 
         }; 
         hud.appendChild(r); 
+        // (se eliminó el botón extra del líder; ahora el líder actúa clicando nombres directamente)
       }
 
-      // Añadimos cada jugador y, si eres el líder, su botón
+      // Añadimos cada jugador; si eres el líder, el NOMBRE se vuelve un botón visible
       state.players.forEach(p => { 
         const d = document.createElement('div'); 
         d.className = 'player-pill' + (p.id === state.leaderId ? ' leader' : '') + (p.ready ? ' ready' : ''); 
+        try { d.setAttribute('data-player-id', p.id); } catch{}
         
-        // Creamos todo el HTML del jugador, pero SIN el botón de "100" para otros jugadores
+        // Contenido del jugador; si eres líder, el nombre será muy visible (grantable)
         d.innerHTML = `
           <span class="dot"></span>
-          <span class="name">${p.name}${p.id === state.leaderId ? ' 👑' : ''}</span>
+          <span class="name${MP.leader ? ' grantable' : ''}" title="${MP.leader ? 'Dar +100 a este jugador' : ''}">${p.name}${p.id === state.leaderId ? ' 👑' : ''}</span>
           <span class="bal">${fmt(p.balance)}</span>
-          `; // Aquí se eliminó la línea del botón de "100"
+          `;
         hud.appendChild(d); 
       });
 
-      // Ya no necesitamos adjuntar event listeners a los botones de "100"
-      // porque han sido eliminados del DOM.
-      // Si en el futuro agregas otros botones que necesiten listeners, deberás agregarlos aquí.
+      // Adjuntar listener al NOMBRE (solo líder)
+      if (MP.leader) {
+        document.querySelectorAll('#playersHud .player-pill').forEach(pill => {
+          const pid = pill.getAttribute('data-player-id');
+          if (!pid) return;
+          const nameEl = pill.querySelector('.name');
+          if (!nameEl) return;
+          nameEl.style.cursor = 'pointer';
+          nameEl.title = 'Dar +100 a este jugador';
+          nameEl.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            try { MP.socket.emit('mp:grant100', { code: MP.code, playerId: pid }); safeLog('Líder: +100 por nombre para '+pid); } catch{}
+          });
+        });
+      }
     }
 
     function updateSpinGating(){ const btn=$('btn-spin'); if(!btn) return; if (MODE==='mp' && MP.state){ const allReady = !!MP.state.allReady; const isLeader = MP.leader; const isRound  = !!MP.state.roundActive; btn.disabled = !(allReady && isLeader && !isRound); } else { btn.disabled = false; } }
