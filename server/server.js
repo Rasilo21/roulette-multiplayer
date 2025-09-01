@@ -188,7 +188,8 @@ io.on("connection", (socket) => {
     if (!payload || !payload.allReady) return;
     room.roundActive = true;
     // Decide número en el servidor
-    const fallback = Math.floor(Math.random()*37);
+    const crypto = require('crypto');
+    const fallback = crypto.randomInt(0, 37);
     room.pendingNumber = fallback;
     io.to(code).emit('mp:spin', { number: fallback });
     console.log('[io] mp:spin', code, fallback);
