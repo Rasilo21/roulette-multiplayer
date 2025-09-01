@@ -310,7 +310,30 @@
       MP.socket.on('connect_error', (e)=>{ toast('Error de conexión'); safeLog('connect_error: '+(e?.message||e)); });
       MP.socket.on('error', (e)=> safeLog('socket error: '+(e?.message||e)));
 
-      // ...deja abajo todos tus listeners mp:joined, mp:state, mp:spin, mp:result, etc.
+      // Listeners de MP (registrar una sola vez)
+      if (!MP._wired){
+        MP._wired = true;
+        MP.socket.on('mp:joined', ({ code, leader, you }) => {
+          MP.code=code; MP.you=you; MP.leader=!!leader;
+          if (leader) {
+            if (codeSpan) codeSpan.textContent = code;
+            if (codeBox) codeBox.style.display='block';
+            if (btnEnterRoom) btnEnterRoom.style.display='inline-block';
+            const joinInput = document.getElementById('mp-room-code'); if(joinInput) joinInput.value = code;
+            safeLog('Sala creada: '+code);
+          } else { overlay.style.display='none'; }
+        });
+        MP.socket.on('mp:state', (state) => {
+          MP.state = state;
+          MP.leader = state.leaderId === MP.you;
+          const self = state.players.find(p => p.id === MP.you);
+          MP.spectator = !!(self && self.spectator);
+          const me = state.players.find(p => p.id === MP.you);
+          if (me) { balance = me.balance; updateHeader(); }
+          renderHud(state);
+          updateSpinGating();
+        });
+      }
       return MP.socket;
     }
     if (btnCreate){ btnCreate.onclick = () => { MODE='mp'; const name = (document.getElementById('mp-name-create')?.value||'').trim()||'Jugador'; const privacy = document.getElementById('mp-privacy')?.value||'public'; const s = connectSocket(); if(!s){ toast('No se pudo iniciar socket'); return; } try{ s.emit('mp:createRoom', { name, privacy }); }catch(e){ safeLog('emit error createRoom: '+(e?.message||e)); } }; }
