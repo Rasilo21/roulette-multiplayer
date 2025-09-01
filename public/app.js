@@ -18,6 +18,34 @@
   let lastBets=[];
   let MODE = 'sp'; // 'sp' | 'mp'
   const MP = { socket:null, code:null, you:null, leader:false, state:null };
+  // Singleplayer: seed (base36) + PRNG determinista por partida
+  const SP = { seedInt: null, seedStr: null, rng: null, spinIndex: 0 };
+  function spMakeMulberry32(seed){
+    let a = (seed >>> 0);
+    return function(){
+      let t = a += 0x6D2B79F5;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296; // [0,1)
+    };
+  }
+  function spEnsureSeed(reset){
+    if (reset || !Number.isInteger(SP.seedInt)){
+      try {
+        const arr = new Uint32Array(1); (window.crypto||window.msCrypto).getRandomValues(arr);
+        SP.seedInt = (arr[0] & 0x7fffffff) >>> 0; // 0..2^31-1
+      } catch {
+        SP.seedInt = (Math.floor(Math.random() * 0x80000000) >>> 0);
+      }
+      SP.seedStr = SP.seedInt.toString(36).toUpperCase();
+      SP.rng = spMakeMulberry32(SP.seedInt);
+      SP.spinIndex = 0;
+      safeLog(`[SP] Seed nueva: ${SP.seedStr} (int=${SP.seedInt})`);
+    }
+    if (!SP.rng) SP.rng = spMakeMulberry32((SP.seedInt>>>0));
+  }
+  function spNext(){ spEnsureSeed(false); SP.spinIndex++; return SP.rng(); }
+  function spNextInt(n){ return Math.floor(spNext()*n); }
   let allInPending = false;
   try { window.__MP = MP; } catch{}
   // ======= DOM =======
@@ -172,7 +200,8 @@
     }
     if(bets.length===0){ toast('Sin apuestas'); return; }
     roundActive = false; toggleControls(true);
-    const number = await Wheel2D.spin();
+    const number = spNextInt(37);
+    await Wheel2D.spinTo(number);
     safeLog(`[SP] Ganador: ${number}`);
     const win = settle(number, bets);
     lastBets = bets.map(b=>({...b}));
@@ -188,6 +217,8 @@
 
   // ========================= Overlay inicio / Lobby =========================
   window.addEventListener('load', () => {
+    // En SP por defecto, aseguremos seed al cargar
+    try { spEnsureSeed(false); } catch {}
     try { Wheel2D.init('#wheel2d'); } catch(e) {}
 
     const overlay = document.getElementById('startOverlay');
@@ -232,6 +263,7 @@
       btnSP.onclick = () => {
         MODE='sp';
         overlay.style.display = 'none';
+        spEnsureSeed(true);
         const rb = document.getElementById('btn-sp-recharge');
         if (rb) { rb.disabled = false; rb.style.opacity = ''; rb.style.pointerEvents=''; rb.title = 'Añadir 100'; }
         safeLog('Modo: Singleplayer');

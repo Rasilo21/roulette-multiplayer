@@ -2,7 +2,18 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const crypto = require("crypto"); // <- CSPRNG
+const crypto = require("crypto");      
+
+// PRNG con seed (mulberry32) para secuencias deterministas por partida
+function makeMulberry32(seed) {
+  let a = (seed >>> 0);
+  return function() {
+    let t = a += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296; // [0,1)
+  };
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -47,7 +58,7 @@ const rooms = new Map();
 function newRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 5; i++) code += chars[crypto.randomInt(chars.length)];
   if (rooms.has(code)) return newRoomCode();
   return code;
 }
@@ -59,7 +70,7 @@ function roomStatePayload(code) {
     id, name: p.name, balance: p.balance, ready: !!p.ready
   }));
   const allReady = players.length > 0 && players.every(p => p.ready);
-  return { code, leaderId: room.leaderId, players, roundActive: !!room.roundActive, allReady };
+  return { code, leaderId: room.leaderId, players, roundActive: !!room.roundActive, allReady, seed: room.seedStr };
 }
 
 function multiplier(t){
@@ -108,6 +119,13 @@ io.on("connection", (socket) => {
     console.log('[io] mp:createRoom', socket.id, name, privacy);
     const code = newRoomCode();
     const room = { leaderId: socket.id, players: new Map(), bets: new Map(), roundActive: false, privacy: privacy||'public', pendingNumber: null };
+    // Seed alfanumérica (base36) con valor entero <= 2,147,483,647
+    const seedInt = crypto.randomInt(0x80000000); // 0..2^31-1
+    const seedStr = seedInt.toString(36).toUpperCase();
+    room.seedInt = seedInt;
+    room.seedStr = seedStr;
+    room.rng = makeMulberry32(seedInt >>> 0);
+    room.spinIndex = 0;
     rooms.set(code, room);
     room.players.set(socket.id, { name: String(name||'Player'), balance: START_BALANCE, ready: false });
     room.bets.set(socket.id, []);
@@ -206,8 +224,10 @@ io.on("connection", (socket) => {
     room.roundActive = true;
 
     // Número autoritativo decidido en el servidor con CSPRNG
-    const result = crypto.randomInt(0, 37); // 0..36
+    const nextFloat = (room.rng ? room.rng() : (crypto.randomInt(0, 0x100000000) / 0x100000000));
+    const result = Math.floor(nextFloat * 37); // 0..36
     room.pendingNumber = result;
+    if (typeof room.spinIndex === 'number') room.spinIndex++;
 
     io.to(code).emit('mp:spin', { number: result });
     console.log('[io] mp:spin', code, result);
@@ -216,7 +236,7 @@ io.on("connection", (socket) => {
     setTimeout(() => {
       const number = Number.isInteger(room.pendingNumber)
         ? room.pendingNumber
-        : crypto.randomInt(0, 37);
+        : Math.floor((room.rng ? room.rng() : (crypto.randomInt(0, 0x100000000) / 0x100000000)) * 37);
 
       const winners = [];
       for (const [pid, list] of room.bets.entries()){
