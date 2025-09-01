@@ -282,9 +282,9 @@
       const isHttp = typeof location !== 'undefined' && /^https?:$/i.test(location.protocol);
       const proto = isHttp ? location.protocol : 'http:';
       const sameOriginPort = isHttp ? (location.port||'80') : '';
-      const shouldUseExplicit = !isHttp || (sameOriginPort !== '3000');
+      const shouldUseExplicit = !isHttp || (sameOriginPort !== '10000');
       const host = (typeof location !== 'undefined' && location.hostname) ? location.hostname : 'localhost';
-      const serverURL = shouldUseExplicit ? `${proto}//${host}:3000` : undefined;
+      const serverURL = shouldUseExplicit ? `${proto}//${host}:10000` : undefined;
       try { MP.socket = serverURL ? io(serverURL, { transports:['websocket','polling'] }) : io(); }
       catch (e) { safeLog('Fallo creando socket: '+(e?.message||e)); toast('No se pudo iniciar socket'); return null; }
       MP.socket.on('connect', ()=>{ safeLog(`Conectado a multiplayer (${MP.socket.id})`); });
