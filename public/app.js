@@ -333,6 +333,51 @@
           renderHud(state);
           updateSpinGating();
         });
+        MP.socket.on('mp:ack', (payload) => {
+          try {
+            if (payload?.action === 'grant100' && payload.ok && MP.leader) {
+              toast(`+100 € añadidos`);
+            }
+          } catch {}
+        });
+        MP.socket.on('mp:error', (e)=> { toast(e?.message||'Error MP'); safeLog('mp:error: '+(e?.message||JSON.stringify(e||{}))); });
+        MP.socket.on('mp:spin', async ({ number })=>{ 
+          roundActive = false; 
+          toggleControls(true); 
+          try { await Wheel2D.spinTo(number); } catch(e) { safeLog('spinTo error: '+(e?.message||e)); }
+          try { MP.socket.emit('mp:landed', { code: MP.code, number }); } catch {}
+        });
+        MP.socket.on('mp:result', ({ number, winners, players })=>{
+          while(bets.length) bets.pop();
+          sumById.clear();
+          document.querySelectorAll('.sum').forEach(s=>{s.style.display='none'; s.textContent='0.00';});
+          const me = (players||[]).find(p=>p.id===MP.you); if(me){ balance = me.balance; }
+          pushHistory(number);
+          const color = number===0 ? 'verde' : (REDS.has(number)?'rojo':'negro');
+          safeLog(`[MP] Ganador: ${number} (${color}).`);
+          try {
+            const myWin = (winners||[]).find(w=>w.playerId===MP.you)?.winAmount||0;
+            if (myWin>0) safeLog(`[MP] Ganancia: ${fmt(myWin)}`); else safeLog(`[MP] Ganancia: 0,00`);
+          } catch {}
+          roundActive = true; toggleControls(false); updateHeader();
+        });
+        MP.socket.on('mp:req:100', ({ playerId, name })=>{
+          try {
+            if (!MP.leader) return;
+            let island = document.getElementById('grant-island');
+            if (!island){
+              island = document.createElement('div');
+              island.id = 'grant-island';
+              island.style.cssText = 'position:fixed;top:10px;right:10px;z-index:99999;background:#0b0e13;border:1px solid #273047;color:#e8edf2;padding:8px 12px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.4);cursor:pointer;font:600 13px system-ui;';
+              document.body.appendChild(island);
+            }
+            island.textContent = `Solicitud +100: ${name}`;
+            island.onclick = () => {
+              try { MP.socket.emit('mp:grant100', { code: MP.code, playerId }); safeLog(`MP(líder): +100 otorgado a ${name}`); } catch{}
+              try { island.remove(); } catch{}
+            };
+          } catch {}
+        });
       }
       return MP.socket;
     }
