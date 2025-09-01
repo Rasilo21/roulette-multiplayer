@@ -488,14 +488,13 @@ const Wheel2D = (() => {
     return index;
   };
   let _spin = spin; // keep ref if needed
-  // --- RNG seguro ---
+  // RNG seguro para grados 100% aleatorios
   function __crandInt(max){
     const g = (window.crypto||window.msCrypto); if (!g) return Math.floor(Math.random()*max);
     const arr = new Uint32Array(1);
     const range = 0x100000000; // 2^32
     const lim = Math.floor(range / max) * max;
-    let x;
-    do { g.getRandomValues(arr); x = arr[0] >>> 0; } while (x >= lim);
+    let x; do { g.getRandomValues(arr); x = arr[0] >>> 0; } while (x >= lim);
     return x % max;
   }
   function __crandFloat(){
@@ -504,22 +503,14 @@ const Wheel2D = (() => {
     return (arr[0] >>> 0) / 0x100000000;
   }
 
-  // --- Reasignamos spin (SP) a dos fases: rpida + lenta con grados extra aleatorios ---
+  // Singleplayer: grados de giro 100% aleatorios (vueltas + jitter)
   spin = function(){
-    const fastTurns = 4 + __crandInt(3); // 4..6
-    const phase1Final = currentRot + fastTurns * 360;
-    const phase1 = () => new Promise(resolve => {
-      const prevTransition = $c.style.transition;
-      $c.style.transition = 'transform 3.6s cubic-bezier(.15,.8,.08,1)';
-      const onEnd = () => { $c.removeEventListener('transitionend', onEnd); resolve(prevTransition); };
-      $c.addEventListener('transitionend', onEnd, { once: true });
-      $c.style.transform = `rotate(${phase1Final}deg)`;
-    });
-    const phase2 = (prevTransition) => new Promise(res => {
-      const extraTailTurns = __crandInt(3); // 0..2
-      const jitter = __crandFloat() * 360;  // 0..360
-      const final = phase1Final + extraTailTurns * 360 + jitter;
-      $c.style.transition = 'transform 1.6s cubic-bezier(.15,.8,.08,1)';
+    const fastTurns = 4 + __crandInt(5);      // 4..8 vueltas base
+    const extraTurns = __crandInt(4);         // 0..3 vueltas extra
+    const jitter = __crandFloat() * 360;      // 0..360 grados
+    const final  = currentRot + (fastTurns + extraTurns) * 360 + jitter;
+    return new Promise(res => {
+      $c.style.transform = `rotate(${final}deg)`;
       const onEnd = () => {
         $c.removeEventListener('transitionend', onEnd);
         currentRot = final;
@@ -527,42 +518,28 @@ const Wheel2D = (() => {
         res(ORDER[idx]);
       };
       $c.addEventListener('transitionend', onEnd, { once: true });
-      $c.style.transform = `rotate(${final}deg)`;
     });
-    return phase1().then(phase2);
   };
 
-  // --- Reasignamos spinTo (MP/SP dirigido) a dos fases ---
+  // spinTo: mantiene el número, pero aleatoriza las vueltas (grados recorridos)
   const __origSpinTo = spinTo;
   spinTo = function(number){
     const idx = ORDER.indexOf(number);
     if (idx < 0) return Promise.resolve(null);
     const targetAngle = 270 - (idx * STEP + STEP / 2) + 90;
     const normalizedTargetAngle = norm(targetAngle);
-    const fastTurns = 4 + __crandInt(3); // 4..6
-    const phase1Final = currentRot + fastTurns * 360;
-    const phase1 = () => new Promise(resolve => {
-      const prevTransition = $c.style.transition;
-      $c.style.transition = 'transform 3.6s cubic-bezier(.15,.8,.08,1)';
-      const onEnd = () => { $c.removeEventListener('transitionend', onEnd); resolve(prevTransition); };
-      $c.addEventListener('transitionend', onEnd, { once: true });
-      $c.style.transform = `rotate(${phase1Final}deg)`;
-    });
-    const phase2 = (prevTransition) => new Promise(res => {
-      const extraTailTurns = __crandInt(3); // 0..2
-      const from = phase1Final;
-      const delta = (normalizedTargetAngle - norm(from) + 360) % 360;
-      const final = from + extraTailTurns * 360 + delta;
-      $c.style.transition = 'transform 1.6s cubic-bezier(.15,.8,.08,1)';
+    const extraTurns = 4 + __crandInt(6);     // 4..9 vueltas extra, aleatorio
+    const delta = (normalizedTargetAngle - norm(currentRot) + 360) % 360;
+    const final = currentRot + extraTurns * 360 + delta;
+    return new Promise(res => {
+      $c.style.transform = `rotate(${final}deg)`;
       const onEnd = () => {
         $c.removeEventListener('transitionend', onEnd);
         currentRot = final;
         res(number);
       };
       $c.addEventListener('transitionend', onEnd, { once: true });
-      $c.style.transform = `rotate(${final}deg)`;
     });
-    return phase1().then(phase2);
   };
 
   return { init, spin, spinTo, order: ORDER, isRed: n => REDS.has(n) };

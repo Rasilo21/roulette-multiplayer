@@ -2,7 +2,6 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -36,7 +35,7 @@ const rooms = new Map(); // code -> { leaderId, players: Map<sid,{name,balance,r
 function newRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  for (let i = 0; i < 5; i++) code += chars[crypto.randomInt(chars.length)];
+  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
   if (rooms.has(code)) return newRoomCode();
   return code;
 }
@@ -189,14 +188,14 @@ io.on("connection", (socket) => {
     if (!payload || !payload.allReady) return;
     room.roundActive = true;
     // Decide número en el servidor
-    const fallback = crypto.randomInt(37);
+    const fallback = Math.floor(Math.random()*37);
     room.pendingNumber = fallback;
     io.to(code).emit('mp:spin', { number: fallback });
     console.log('[io] mp:spin', code, fallback);
 
     // Liquidación tras la animación (~5.2s)
     setTimeout(() => {
-      const number = (typeof room.pendingNumber === 'number') ? room.pendingNumber : crypto.randomInt(37);
+      const number = (typeof room.pendingNumber === 'number') ? room.pendingNumber : Math.floor(Math.random()*37);
       const winners = [];
       for (const [pid, list] of room.bets.entries()){
         const player = room.players.get(pid); if (!player) continue;
