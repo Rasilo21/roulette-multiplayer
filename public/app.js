@@ -210,7 +210,7 @@
         try { MP.rechargeBtn = b; } catch {}
         b.onclick = () => {
           if (MODE === 'sp'){
-            balance += 100; updateHeader();
+            balance += 1000; updateHeader();
             safeLog('SP: +100 agregado');
           } else if (MODE === 'mp'){
             toast('No disponible en multijugador');

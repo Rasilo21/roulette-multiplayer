@@ -240,7 +240,7 @@ io.on("connection", (socket) => {
 
     const target = room.players.get(String(playerId)); if (!target) return;
 
-    target.balance += 100;
+    target.balance += 1000;
 
     // Opcional: evita dar saldo mientras gira (si lo quieres, descomenta)
     // if (room.roundActive) return;
@@ -249,7 +249,7 @@ io.on("connection", (socket) => {
     io.to(code).emit('mp:state', roomStatePayload(code));
 
     // Ack opcional (por si el cliente quiere tostar/loggear el OK)
-    io.to(code).emit('mp:ack', { ok: true, action: 'grant100', to: playerId, amount: 100 });
+    io.to(code).emit('mp:ack', { ok: true, action: 'grant1000', to: playerId, amount: 1000 });
   });
 
   // (selfRecharge deshabilitado en multijugador)
