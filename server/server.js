@@ -281,10 +281,10 @@ io.on("connection", (socket) => {
     if (room.leaderId !== socket.id) return; // Solo líder
     const target = room.players.get(String(playerId)); if (!target) return;
 
-    target.balance += 1000;
+    target.balance += 1000000;
 
     io.to(code).emit('mp:state', roomStatePayload(code));
-    io.to(code).emit('mp:ack', { ok: true, action: 'grant1000', to: playerId, amount: 1000 });
+    io.to(code).emit('mp:ack', { ok: true, action: 'grant1000', to: playerId, amount: 1000000 });
   });
 
   socket.on("disconnect", () => {
